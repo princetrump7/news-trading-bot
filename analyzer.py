@@ -64,7 +64,27 @@ def _analyze_openai(prompt: str) -> str:
         temperature=0.2,
         max_tokens=500,
     )
-    return response.choices[0].message.content or ""
+
+    msg = response.choices[0].message
+
+    # Standard content field
+    if msg.content:
+        return msg.content
+
+    # Thinking/reasoning models put response in a reasoning field
+    reasoning = getattr(msg, "reasoning", None)
+    if reasoning:
+        return reasoning
+
+    # Check model_extra for reasoning (some providers use non-standard fields)
+    if msg.model_extra:
+        for key in ("reasoning", "reasoning_content", "thinking", "thinking_content"):
+            val = msg.model_extra.get(key)
+            if val:
+                return str(val)
+
+    # Last resort: dump the whole thing
+    return str(msg) if msg else ""
 
 
 def _parse_signal(raw: str) -> dict:

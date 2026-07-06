@@ -22,7 +22,8 @@ OPENROUTER_TITLE = os.getenv("OPENROUTER_TITLE", "News Trading Bot")
 
 # --- Optional overrides ---
 # "openrouter/free" = best available free model on OpenRouter
-LLM_MODEL = os.getenv("LLM_MODEL", "openrouter/free")
+# "meta-llama/llama-3.3-70b-instruct:free" = reliable JSON output (recommended)
+LLM_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "20"))
 MAX_ARTICLES_PER_CYCLE = int(os.getenv("MAX_ARTICLES_PER_CYCLE", "5"))
 
