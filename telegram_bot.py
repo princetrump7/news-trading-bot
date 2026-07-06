@@ -55,6 +55,10 @@ def format_signal(article: dict, signal: dict) -> str:
 
     trade_emoji = {"buy": "✅", "sell": "❌", "ignore": "⏭️"}
 
+    # Build ticker display
+    ticker = signal.get("ticker", "N/A")
+    ticker_display = f"*{ticker}*" if ticker and ticker != "N/A" else f"*{asset}*"
+
     msg = (
         f"🚨 *NEWS SIGNAL*\n"
         f"{'─' * 32}\n"
@@ -62,7 +66,7 @@ def format_signal(article: dict, signal: dict) -> str:
         f"*{article.get('title', 'Untitled')}*\n"
         f"\n"
         f"┌ {'─' * 28} ┐\n"
-        f"  {asset_emoji.get(asset, '📰')} {header} on *{asset}*\n"
+        f"  {asset_emoji.get(asset, '📰')} {header} on {ticker_display}\n"
         f"  📊 Impact: {impact}/100  |  Confidence: {conf_bar} {confidence}%\n"
         f"  🎯 Trade: {trade_emoji.get(trade, '➡️')} *{trade.upper()}*\n"
         f"  ⏱ Horizon: *{signal.get('time_horizon', 'medium')}*\n"

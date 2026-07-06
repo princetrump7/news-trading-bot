@@ -25,6 +25,7 @@ openai_client = OpenAI(
 
 DEFAULT_SIGNAL = {
     "asset": "NONE",
+    "ticker": "N/A",
     "bias": "neutral",
     "impact_score": 0,
     "confidence": 0,
@@ -87,6 +88,7 @@ def _parse_signal(raw: str) -> dict:
         # Validate required fields with defaults
         signal = {
             "asset": str(data.get("asset", DEFAULT_SIGNAL["asset"])),
+            "ticker": str(data.get("ticker", DEFAULT_SIGNAL["ticker"])),
             "bias": str(data.get("bias", DEFAULT_SIGNAL["bias"])),
             "impact_score": int(data.get("impact_score", 0)),
             "confidence": int(data.get("confidence", 0)),

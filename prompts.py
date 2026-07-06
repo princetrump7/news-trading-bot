@@ -17,10 +17,18 @@ Title: {title}
 Summary: {summary}
 Published: {published}
 
+IMPORTANT: Always identify and include the exact ticker symbol(s) mentioned.
+
+- For Gold → ticker is "XAUUSD"
+- For a specific stock → ticker is the exact symbol (e.g. "AAPL", "TSLA", "NVDA", "MSFT")
+- For broad market → ticker is "SPY" or "QQQ" or the relevant index
+- If multiple, pick the MOST impacted one
+
 Return valid JSON ONLY — no markdown, no code fences, no extra text:
 
 {{
   "asset": "XAUUSD" | "STOCKS" | "BOTH" | "NONE",
+  "ticker": "exact ticker symbol (e.g. AAPL, TSLA, XAUUSD, SPY)",
   "bias": "bullish" | "bearish" | "neutral",
   "impact_score": 0-100,
   "confidence": 0-100,
