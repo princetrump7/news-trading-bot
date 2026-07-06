@@ -1,0 +1,5 @@
+python-telegram-bot>=21.0
+feedparser
+requests
+openai>=1.0
+python-dotenv
