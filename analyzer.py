@@ -4,7 +4,7 @@ import json
 import re
 from openai import OpenAI
 from config import OPENAI_API_KEY, LLM_MODEL, OPENAI_BASE_URL, OPENROUTER_REFERER, OPENROUTER_TITLE
-from prompts import ANALYZE_NEWS_PROMPT
+from prompts import SYSTEM_PROMPT, USER_PROMPT
 
 # Build the OpenAI client (works with OpenRouter, OpenAI, or any compatible endpoint)
 extra_headers = {}
@@ -37,18 +37,23 @@ DEFAULT_SIGNAL = {
 
 def analyze_news(article: dict) -> dict:
     """Send article to LLM and return a parsed trading signal dict."""
-    prompt = ANALYZE_NEWS_PROMPT.format(
+    user_msg = USER_PROMPT.format(
         title=article.get("title", ""),
         summary=article.get("summary", ""),
         published=article.get("published", ""),
     )
 
     try:
-        raw = _analyze_openai(prompt)
+        raw = _analyze_openai(user_msg)
 
         signal = _parse_signal(raw)
         signal["_raw_analysis"] = raw
         signal["_article_link"] = article.get("link", "")
+
+        # If parsing failed, try once more with a stronger follow-up
+        if signal.get("_error") and raw.strip():
+            signal = _force_json(raw, article.get("link", ""))
+
         return signal
 
     except Exception as e:
@@ -56,14 +61,31 @@ def analyze_news(article: dict) -> dict:
         return {**DEFAULT_SIGNAL, "_error": str(e), "_article_link": article.get("link", "")}
 
 
-def _analyze_openai(prompt: str) -> str:
-    """Call OpenAI and return raw text response."""
-    response = openai_client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        max_tokens=500,
-    )
+def _analyze_openai(user_msg: str) -> str:
+    """Call LLM with system prompt + article. Returns raw response text."""
+    try:
+        # Try with response_format hint first (some models support it)
+        response = openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.1,
+            max_tokens=600,
+            response_format={"type": "json_object"},
+        )
+    except Exception:
+        # Fallback: retry without response_format if model doesn't support it
+        response = openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.1,
+            max_tokens=600,
+        )
 
     msg = response.choices[0].message
 
@@ -87,41 +109,129 @@ def _analyze_openai(prompt: str) -> str:
     return str(msg) if msg else ""
 
 
+# ---- JSON parsing ----
+
+JSON_FIELDS = ["asset", "ticker", "bias", "impact_score", "confidence", "reason", "trade_idea", "time_horizon"]
+
+BIAS_VALUES = {"bullish", "bearish", "neutral"}
+TRADE_VALUES = {"buy", "sell", "ignore"}
+ASSET_VALUES = {"xauusd", "stocks", "both", "none"}
+HORIZON_VALUES = {"short", "medium", "long"}
+
+
 def _parse_signal(raw: str) -> dict:
-    """Extract JSON from LLM response, handling markdown fences and stray text."""
+    """Try to parse JSON from LLM response. Returns signal dict or DEFAULT_SIGNAL."""
     if not raw:
         return {**DEFAULT_SIGNAL, "reason": "Empty response from LLM."}
 
-    # Strip markdown code fences if present
+    # Strip markdown fences
     cleaned = raw.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    # Try to find JSON object in the response
+    # Try to find JSON object
     json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not json_match:
-        return {**DEFAULT_SIGNAL, "reason": f"No JSON found in LLM response. Raw: {raw[:200]}"}
+        # Failed — send back what we got for _force_json fallback
+        return {**DEFAULT_SIGNAL, "_raw": raw}
 
+    data = _safe_json_parse(json_match.group())
+    if data is None:
+        return {**DEFAULT_SIGNAL, "_raw": raw}
+
+    return _build_signal(data, raw)
+
+
+def _safe_json_parse(text: str) -> dict | None:
+    """Parse JSON with extra resilience for trailing commas, single quotes, etc."""
     try:
-        data = json.loads(json_match.group())
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
 
-        # Validate required fields with defaults
-        signal = {
-            "asset": str(data.get("asset", DEFAULT_SIGNAL["asset"])),
-            "ticker": str(data.get("ticker", DEFAULT_SIGNAL["ticker"])),
-            "bias": str(data.get("bias", DEFAULT_SIGNAL["bias"])),
-            "impact_score": int(data.get("impact_score", 0)),
-            "confidence": int(data.get("confidence", 0)),
-            "reason": str(data.get("reason", DEFAULT_SIGNAL["reason"])),
-            "trade_idea": str(data.get("trade_idea", DEFAULT_SIGNAL["trade_idea"])),
-            "time_horizon": str(data.get("time_horizon", DEFAULT_SIGNAL["time_horizon"])),
-        }
+    # Try fixing common issues: single quotes → double quotes
+    try:
+        fixed = re.sub(r"(?<!\\)'(?!=)|\"(?=:)|(?<=: )\"", '"', text)
+        return json.loads(fixed)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
 
-        # Clamp numeric fields
-        signal["impact_score"] = max(0, min(100, signal["impact_score"]))
-        signal["confidence"] = max(0, min(100, signal["confidence"]))
+    # Try fixing unquoted keys
+    try:
+        fixed = re.sub(r'(\w+)(?=\s*:)', r'"\1"', text)
+        return json.loads(fixed)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
 
-        return signal
+    return None
 
-    except (json.JSONDecodeError, ValueError, TypeError) as e:
-        return {**DEFAULT_SIGNAL, "reason": f"JSON parse error: {e}. Raw: {raw[:200]}"}
+
+def _build_signal(data: dict, raw: str) -> dict:
+    """Build validated signal dict from parsed JSON data."""
+    # Normalize string fields
+    asset = str(data.get("asset", DEFAULT_SIGNAL["asset"])).upper()
+    if asset.lower() not in ASSET_VALUES:
+        asset = DEFAULT_SIGNAL["asset"]
+
+    ticker = str(data.get("ticker", DEFAULT_SIGNAL["ticker"])).upper()
+    bias = str(data.get("bias", DEFAULT_SIGNAL["bias"])).lower()
+    trade = str(data.get("trade_idea", DEFAULT_SIGNAL["trade_idea"])).lower()
+    horizon = str(data.get("time_horizon", DEFAULT_SIGNAL["time_horizon"])).lower()
+
+    if bias not in BIAS_VALUES:
+        bias = DEFAULT_SIGNAL["bias"]
+    if trade not in TRADE_VALUES:
+        trade = DEFAULT_SIGNAL["trade_idea"]
+    if horizon not in HORIZON_VALUES:
+        horizon = DEFAULT_SIGNAL["time_horizon"]
+
+    signal = {
+        "asset": asset,
+        "ticker": ticker if ticker != "N/A" else ("XAUUSD" if asset == "XAUUSD" else ticker),
+        "bias": bias,
+        "impact_score": max(0, min(100, int(data.get("impact_score", 0)))),
+        "confidence": max(0, min(100, int(data.get("confidence", 0)))),
+        "reason": str(data.get("reason", DEFAULT_SIGNAL["reason"])),
+        "trade_idea": trade,
+        "time_horizon": horizon,
+    }
+    return signal
+
+
+def _force_json(raw: str, article_link: str) -> dict:
+    """Fallback: try to extract fields from free text when JSON parsing failed."""
+    lower = raw.lower()
+    extracted = {}
+
+    # Detect asset from text
+    if any(w in lower for w in ["gold", "xau", "xauusd", "bullion"]):
+        extracted["asset"] = "XAUUSD"
+        extracted["ticker"] = "XAUUSD"
+    elif any(w in lower for w in ["stock", "equity", "nasdaq", "s&p"]):
+        extracted["asset"] = "STOCKS"
+        extracted["ticker"] = "SPY"
+
+    # Detect bias from text
+    if any(w in lower for w in ["bullish", "positive", "rally", "increase", "gain"]):
+        extracted["bias"] = "bullish"
+        extracted["trade_idea"] = "buy"
+    elif any(w in lower for w in ["bearish", "negative", "decline", "drop", "sell-off", "decrease", "loss"]):
+        extracted["bias"] = "bearish"
+        extracted["trade_idea"] = "sell"
+    else:
+        extracted["bias"] = "neutral"
+        extracted["trade_idea"] = "ignore"
+
+    # Extract ticker via uppercase patterns
+    tickers = re.findall(r'\b([A-Z]{2,5})\b', raw)
+    known_tickers = {"AAPL", "TSLA", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META",
+                     "SPY", "QQQ", "DIA", "XAUUSD", "GOLD"}
+    found = [t for t in tickers if t in known_tickers]
+    if found:
+        extracted["ticker"] = found[0]
+
+    signal = _build_signal({**DEFAULT_SIGNAL, **extracted}, raw)
+    signal["_raw_analysis"] = raw
+    signal["_article_link"] = article_link
+    signal["_from_fallback"] = True
+    return signal
