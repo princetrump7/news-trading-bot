@@ -7,6 +7,17 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 # Initialize bot once (module level)
 bot = Bot(token=TELEGRAM_BOT_TOKEN) if TELEGRAM_BOT_TOKEN else None
 
+# Persistent event loop to avoid RuntimeError('Event loop is closed') on repeated calls
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
 
 def send_signal(text: str) -> bool:
     """Send a message to the configured Telegram chat. Returns True on success."""
@@ -18,13 +29,21 @@ def send_signal(text: str) -> bool:
         return False
 
     try:
-        # python-telegram-bot v21 uses async methods
-        asyncio.run(bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=text,
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-        ))
+        loop = _get_loop()
+        loop.run_until_complete(
+            asyncio.wait_for(
+                bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=15,
+                ),
+                timeout=30,
+            )
+        )
         return True
     except Exception as e:
         print(f"❌ Telegram send error: {e}")

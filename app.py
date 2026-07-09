@@ -13,6 +13,10 @@ import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Fix Windows cp1252 encoding for emoji prints
+if sys.stdout.encoding and sys.stdout.encoding.lower() in ('cp1252', 'ansi_x3.4-1968'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 from config import validate, POLL_INTERVAL_SECONDS, MAX_ARTICLES_PER_CYCLE
 from news_fetcher import fetch_news_with_retry
 from filter import is_relevant
