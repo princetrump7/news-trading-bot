@@ -14,10 +14,6 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_BASE_URL
-        value: https://openrouter.ai/api/v1
+        value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
-        value: meta-llama/llama-3.3-70b-instruct:free
-      - key: OPENROUTER_REFERER
-        value: https://github.com/princ/news-trading-bot
-      - key: OPENROUTER_TITLE
-        value: News Trading Bot
+        value: llama-3.3-70b-versatile
