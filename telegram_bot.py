@@ -92,6 +92,24 @@ def format_signal(article: dict, signal: dict) -> str:
         f"└ {'─' * 28} ┘\n"
         f"\n"
         f"💡 *Reason:*\n{signal.get('reason', 'N/A')}\n"
+    )
+
+    # Add TP/SL block if present (only for actionable signals)
+    entry = signal.get("entry_zone")
+    tp = signal.get("take_profit")
+    sl = signal.get("stop_loss")
+
+    if trade != "ignore" and (entry or tp or sl):
+        msg += f"\n┌ {'─' * 28} ┐\n"
+        if entry:
+            msg += f"  📌 *Entry:* {entry}\n"
+        if tp:
+            msg += f"  🎯 *TP:* {tp}\n"
+        if sl:
+            msg += f"  🛑 *SL:* {sl}\n"
+        msg += f"└ {'─' * 28} ┘\n"
+
+    msg += (
         f"\n"
         f"🔗 [Read article]({signal.get('_article_link', article.get('link', ''))})\n"
         f"📅 {article.get('published', 'Unknown date')}"

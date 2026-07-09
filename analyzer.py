@@ -32,6 +32,9 @@ DEFAULT_SIGNAL = {
     "reason": "Analysis failed or returned unparseable output.",
     "trade_idea": "ignore",
     "time_horizon": "medium",
+    "entry_zone": None,
+    "take_profit": None,
+    "stop_loss": None,
 }
 
 
@@ -111,7 +114,7 @@ def _analyze_openai(user_msg: str) -> str:
 
 # ---- JSON parsing ----
 
-JSON_FIELDS = ["asset", "ticker", "bias", "impact_score", "confidence", "reason", "trade_idea", "time_horizon"]
+JSON_FIELDS = ["asset", "ticker", "bias", "impact_score", "confidence", "reason", "trade_idea", "time_horizon", "entry_zone", "take_profit", "stop_loss"]
 
 BIAS_VALUES = {"bullish", "bearish", "neutral"}
 TRADE_VALUES = {"buy", "sell", "ignore"}
@@ -194,7 +197,22 @@ def _build_signal(data: dict, raw: str) -> dict:
         "reason": str(data.get("reason", DEFAULT_SIGNAL["reason"])),
         "trade_idea": trade,
         "time_horizon": horizon,
+        "entry_zone": data.get("entry_zone"),
+        "take_profit": data.get("take_profit"),
+        "stop_loss": data.get("stop_loss"),
     }
+
+    # Enforce consistency: trade buy/sell requires non-NONE asset
+    if signal["trade_idea"] != "ignore" and signal["asset"] == "NONE":
+        # Try to infer asset from ticker
+        if signal["ticker"] == "XAUUSD":
+            signal["asset"] = "XAUUSD"
+        elif signal["ticker"] not in ("N/A", "SPY", "XAUUSD"):
+            signal["asset"] = "STOCKS"
+        else:
+            # Can't determine — force ignore to avoid losing the signal info
+            signal["trade_idea"] = "ignore"
+
     return signal
 
 

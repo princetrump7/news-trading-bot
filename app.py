@@ -118,14 +118,27 @@ def main():
             print(f"       Keywords: {matched[:5]}")
 
             signal_data = analyze_news(article)
-            message = format_signal(article, signal_data)
 
-            success = send_signal(message)
-            if success:
-                total_signals += 1
-                print(f"       ✅ Signal sent to Telegram")
+            # Debug: print full signal for the first analysis each cycle
+            if i == 1:
+                print(f"       📋 Raw signal: asset={signal_data.get('asset')}, ticker={signal_data.get('ticker')}, bias={signal_data.get('bias')}, trade={signal_data.get('trade_idea')}, impact={signal_data.get('impact_score')}, conf={signal_data.get('confidence')}, entry={signal_data.get('entry_zone')}, tp={signal_data.get('take_profit')}, sl={signal_data.get('stop_loss')}")
+
+            # Only send signals with real market impact
+            impact = signal_data.get("impact_score", 0)
+            confidence = signal_data.get("confidence", 0)
+            trade = signal_data.get("trade_idea", "ignore")
+            asset = signal_data.get("asset", "NONE")
+
+            if impact >= 40 and confidence >= 30 and trade != "ignore" and asset != "NONE":
+                message = format_signal(article, signal_data)
+                success = send_signal(message)
+                if success:
+                    total_signals += 1
+                    print(f"       ✅ Signal sent (impact={impact}, confidence={confidence})")
+                else:
+                    print(f"       ❌ Failed to send Telegram message")
             else:
-                print(f"       ❌ Failed to send Telegram message")
+                print(f"       ⏭️  Skipped — impact={impact}, confidence={confidence}, trade={trade}, asset={asset}")
 
         if running:
             print(f"   💤 Sleeping {POLL_INTERVAL_SECONDS}s...")
